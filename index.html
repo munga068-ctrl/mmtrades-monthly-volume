@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trades by Month</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<script>
+(function(){
+  try{
+    var saved = localStorage.getItem('mmtrades-theme');
+    var theme = saved || ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', theme);
+  }catch(e){ /* localStorage unavailable; defaults to light */ }
+})();
+</script>
+<style>
+  :root{
+    --ink:#14171c;
+    --muted:#6b7280;
+    --line:#e7e9ec;
+    --green:#0f8a4c;
+    --red:#d1352b;
+    --blue-600:#185FA5;
+    --panel:#fafbfc;
+    --bg:#ffffff;
+    --btn-bg:#ffffff;
+    --hover-bg:#f4f5f6;
+    --synced-c:#a7abb2;
+    --stale-c:#e0a83b;
+    --grid-line:#f0f1f3;
+  }
+  html[data-theme="dark"]{
+    --ink:#e7e9ee;
+    --muted:#9aa1ac;
+    --line:#2a2f38;
+    --green:#33c47a;
+    --red:#f0635a;
+    --blue-600:#6c93f5;
+    --panel:#171a1f;
+    --bg:#0f1115;
+    --btn-bg:#1b1e24;
+    --hover-bg:#20242b;
+    --synced-c:#5b6068;
+    --stale-c:#e0a83b;
+    --grid-line:#20242b;
+  }
+  *{ box-sizing:border-box; }
+  html, body{ height:100%; min-height:100vh; }
+  body{
+    margin:0; padding:28px 32px 60px;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);
+    background:var(--bg);
+    max-width:1080px; margin-left:auto; margin-right:auto;
+  }
+  .top-bar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+  h1{ font-size:20px; margin:0; font-weight:700; letter-spacing:-0.01em; }
+  .top-actions{ display:flex; align-items:center; gap:10px; }
+  .icon-btn{
+    border:1px solid var(--line); background:var(--btn-bg); border-radius:8px;
+    width:32px; height:32px; cursor:pointer; font-size:15px; color:var(--ink);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .icon-btn:hover{ background:var(--hover-bg); }
+  .icon-btn.spin svg{ animation:spin 0.8s linear infinite; }
+  @keyframes spin{ from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
+  .status-line{ font-size:12px; color:var(--synced-c); margin-bottom:22px; }
+  .status-line.stale{ color:var(--stale-c); }
+  .subtitle{ font-size:13px; color:var(--muted); margin:-2px 0 22px; }
+  .chart-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:16px 18px 16px; margin-bottom:20px;
+  }
+  .chart-card h3{ margin:0 0 4px; font-size:13px; font-weight:700; color:var(--ink); }
+  .chart-card .caption{ font-size:12px; color:var(--muted); margin:0 0 14px; }
+  .chart-card .chart-body{ position:relative; height:380px; }
+  .stat-row{ display:flex; gap:14px; flex-wrap:wrap; margin-top:14px; }
+  .stat{ background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px 14px; flex:1; min-width:140px; }
+  .stat .label{ font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .stat .value{ font-size:18px; font-weight:700; margin-top:2px; }
+  footer{ text-align:center; font-size:11px; color:var(--muted); margin-top:8px; }
+  @media (max-width:640px){
+    body{ padding:20px 16px 40px; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="top-bar">
+    <h1>Trades by Month</h1>
+    <div class="top-actions">
+      <button class="icon-btn" id="syncBtn" title="Refresh with the latest synced data">
+        <svg id="syncIcon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+      </button>
+      <button class="icon-btn" id="themeBtn" title="Toggle theme">
+        <svg id="themeIcon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+      </button>
+    </div>
+  </div>
+  <div class="status-line" id="statusLine">&nbsp;</div>
+  <p class="subtitle">Backtesting database &middot; trades logged per calendar month (America/New_York) &middot; <span id="tradeCountLabel"></span> total</p>
+
+  <div class="chart-card">
+    <h3>Trades Logged by Month</h3>
+    <p class="caption">Number of dated entries in the Backtesting database, grouped by month</p>
+    <div class="chart-body"><canvas id="monthlyChart"></canvas></div>
+    <div class="stat-row" id="statRow"></div>
+  </div>
+
+  <footer>Synced from Notion (BACKTESTING database) &middot; entry dates converted from UTC to America/New_York</footer>
+
+<script>
+// SYNC_MARKER_START
+// Auto-updated by .github/workflows/sync.yml — do not hand-edit between the markers.
+const DATA_SYNCED_AT = "2026-09-02T00:00:00.000Z";
+const ENTRY_TIMESTAMPS_UTC = ["2025-09-02T14:35:00Z","2025-09-05T14:10:00Z","2025-10-06T15:03:00Z","2025-10-06T19:15:00Z","2025-10-07T14:50:00Z","2025-10-08T14:01:00Z","2025-10-14T14:10:00Z","2025-10-14T19:30:00Z","2025-10-16T15:34:00Z","2025-10-23T15:50:00Z","2025-10-24T15:11:00Z","2025-10-24T19:30:00Z","2025-10-28T15:45:00Z","2025-10-28T19:45:00Z","2025-10-29T14:45:00Z","2025-10-29T19:47:00Z","2025-10-30T19:05:00Z","2025-10-31T15:50:00Z","2025-11-03T15:18:00Z","2025-11-03T18:47:00Z","2025-11-03T20:15:00Z","2025-11-04T16:04:00Z","2025-11-04T19:30:00Z","2025-11-05T20:17:00Z","2025-11-06T20:31:00Z","2025-11-13T15:23:00Z","2025-11-13T20:30:00Z","2025-11-14T20:14:00Z","2025-11-18T14:45:00Z","2025-11-18T20:16:00Z","2025-11-20T15:50:00Z","2025-11-20T20:30:00Z","2025-11-25T16:23:00Z","2025-12-02T16:08:00Z","2025-12-08T15:10:00Z","2025-12-12T15:02:00Z","2025-12-12T15:52:00Z","2025-12-12T20:16:00Z","2025-12-16T15:10:00Z","2025-12-17T15:34:00Z","2025-12-22T15:03:00Z","2025-12-24T15:32:00Z","2025-12-29T15:43:00Z","2025-12-30T20:25:00Z","2026-01-02T15:07:00Z","2026-01-05T17:00:00Z","2026-01-05T19:16:00Z","2026-01-07T17:10:00Z","2026-01-08T16:38:00Z","2026-01-08T20:18:00Z","2026-01-09T20:21:00Z","2026-01-09T20:31:00Z","2026-01-12T20:12:00Z","2026-01-13T15:09:00Z","2026-01-14T20:08:00Z","2026-01-15T19:09:00Z","2026-01-16T15:24:00Z","2026-01-21T17:13:00Z","2026-01-23T16:07:00Z","2026-01-23T19:34:00Z","2026-01-23T19:40:00Z","2026-01-28T20:30:00Z","2026-01-29T15:31:00Z","2026-01-30T19:35:00Z","2026-02-02T19:29:00Z","2026-02-03T16:26:00Z","2026-02-04T16:35:00Z","2026-02-09T15:30:00Z","2026-02-09T20:17:00Z","2026-02-10T20:02:00Z","2026-02-11T15:04:00Z","2026-02-12T15:33:00Z","2026-02-12T20:02:00Z","2026-02-13T19:50:00Z","2026-02-17T15:50:00Z","2026-02-17T19:54:00Z","2026-02-18T20:33:00Z","2026-02-20T15:42:00Z","2026-02-23T15:37:00Z","2026-02-26T15:04:00Z","2026-02-27T20:03:00Z","2026-03-04T19:40:00Z","2026-03-11T15:00:00Z","2026-03-12T18:16:00Z","2026-03-13T14:32:00Z","2026-03-18T18:17:00Z","2026-03-20T13:49:00Z","2026-03-23T15:30:00Z","2026-03-23T19:41:00Z","2026-03-24T18:20:00Z","2026-03-25T18:38:00Z","2026-04-01T17:41:00Z","2026-04-07T13:43:00Z","2026-04-07T14:58:00Z","2026-04-07T18:27:00Z","2026-04-07T19:44:00Z","2026-04-08T13:36:00Z","2026-04-09T15:30:00Z","2026-04-10T15:28:00Z","2026-04-10T18:56:00Z","2026-04-14T18:03:00Z","2026-04-16T18:01:00Z","2026-04-17T18:01:00Z","2026-04-20T14:38:00Z","2026-04-21T14:53:00Z","2026-04-21T18:56:00Z","2026-04-23T14:47:00Z","2026-05-04T15:02:00Z","2026-05-05T19:44:00Z","2026-05-12T14:22:00Z","2026-05-13T14:45:00Z","2026-05-14T14:32:00Z","2026-05-15T15:42:00Z","2026-05-15T18:23:00Z","2026-05-19T13:59:00Z","2026-05-20T14:47:00Z","2026-05-22T19:01:00Z","2026-05-28T15:49:00Z","2026-06-09T15:16:00Z","2026-06-16T14:17:00Z","2026-06-26T18:06:00Z","2026-06-29T14:24:00Z","2026-06-30T14:44:00Z","2026-07-02T14:16:00Z","2026-07-09T14:57:00Z","2026-07-09T18:19:00Z","2026-07-14T14:29:00Z","2026-07-15T14:17:00Z","2026-07-17T14:47:00Z","2026-07-20T18:28:00Z","2026-07-21T14:21:00Z","2026-07-23T14:40:00Z","2026-07-28T14:38:00Z","2026-07-30T14:46:00Z","2026-07-30T18:36:00Z","2026-08-07T14:59:00Z","2026-08-21T14:46:00Z","2026-09-01T14:12:00Z","2026-09-01T18:10:00Z","2026-09-02T14:46:00Z"];
+// SYNC_MARKER_END
+</script>
+<script>
+function cv(name){
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function loadScript(src){
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => resolve(true);
+    s.onerror = () => reject(new Error('failed to load ' + src));
+    document.head.appendChild(s);
+  });
+}
+const CHART_JS_MIRRORS = [
+  "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js",
+  "https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js",
+  "https://unpkg.com/chart.js@4.4.4/dist/chart.umd.min.js",
+];
+async function loadChartJs(){
+  for(const url of CHART_JS_MIRRORS){
+    try{
+      await loadScript(url);
+      if(typeof Chart !== 'undefined') return true;
+    }catch(e){ /* try next mirror */ }
+  }
+  return false;
+}
+
+function updateStatusLine(){
+  const statusLine = document.getElementById('statusLine');
+  if(!DATA_SYNCED_AT){ statusLine.textContent = ''; return; }
+  const synced = new Date(DATA_SYNCED_AT);
+  const ageMin = (Date.now() - synced.getTime()) / 60000;
+  const stale = ageMin > 30;
+  statusLine.className = 'status-line' + (stale ? ' stale' : '');
+  statusLine.textContent = `Last synced ${synced.toLocaleString()}${stale ? ' — sync may be delayed' : ''}`;
+}
+
+// ---- Group entries into calendar months, in America/New_York ----
+function toNyYearMonth(isoUtc){
+  const d = new Date(isoUtc);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit'
+  }).formatToParts(d);
+  const y = parts.find(p => p.type === 'year').value;
+  const m = parts.find(p => p.type === 'month').value;
+  return `${y}-${m}`;
+}
+function monthLabel(yearMonth){
+  const [y, m] = yearMonth.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+function buildMonthlyCounts(timestamps){
+  const counts = {};
+  timestamps.forEach(ts => {
+    const key = toNyYearMonth(ts);
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  const keys = Object.keys(counts).sort();
+  if(keys.length === 0) return { labels: [], values: [] };
+
+  // Fill in any silent months with 0 so the line doesn't skip gaps.
+  const [startY, startM] = keys[0].split('-').map(Number);
+  const [endY, endM] = keys[keys.length - 1].split('-').map(Number);
+  const filled = [];
+  let y = startY, m = startM;
+  while (y < endY || (y === endY && m <= endM)) {
+    const key = `${y}-${String(m).padStart(2, '0')}`;
+    filled.push([key, counts[key] || 0]);
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  return {
+    labels: filled.map(([key]) => monthLabel(key)),
+    values: filled.map(([, v]) => v)
+  };
+}
+
+let monthlyChartInstance = null;
+function renderMonthlyChart(labels, values){
+  const mutedC = cv('--muted');
+  const gridC = cv('--grid-line');
+  const blueLine = cv('--blue-600') || '#185FA5';
+
+  const ctx = document.getElementById('monthlyChart').getContext('2d');
+  if(monthlyChartInstance) monthlyChartInstance.destroy();
+  monthlyChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values, borderColor: blueLine, backgroundColor: 'transparent',
+        borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: blueLine, tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display:false }, tooltip: { callbacks: { label: (ctx)=> ctx.parsed.y + ' trade' + (ctx.parsed.y===1?'':'s') } } },
+      scales: {
+        x: { ticks: { color:mutedC, font:{size:11}, maxRotation:0 }, grid:{ display:false } },
+        y: { beginAtZero:true, ticks: { color:mutedC, font:{size:10}, stepSize:2 }, grid:{ color:gridC } }
+      }
+    }
+  });
+}
+
+function renderStats(labels, values){
+  const statRow = document.getElementById('statRow');
+  const total = values.reduce((a, b) => a + b, 0);
+  const avg = values.length ? (total / values.length) : 0;
+  const maxVal = Math.max(...values);
+  const maxIdx = values.indexOf(maxVal);
+  const minVal = Math.min(...values);
+  const minIdx = values.indexOf(minVal);
+
+  statRow.innerHTML = `
+    <div class="stat"><div class="label">Busiest month</div><div class="value">${labels[maxIdx] || '—'} (${maxVal})</div></div>
+    <div class="stat"><div class="label">Quietest month</div><div class="value">${labels[minIdx] || '—'} (${minVal})</div></div>
+    <div class="stat"><div class="label">Monthly average</div><div class="value">${avg.toFixed(1)}</div></div>
+  `;
+}
+
+function renderAll(){
+  if(typeof Chart === 'undefined'){
+    document.getElementById('monthlyChart').parentElement.innerHTML =
+      '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);text-align:center;padding:0 12px;">Charts library couldn\'t load (network/ad-blocker may be blocking it).</div>';
+    return;
+  }
+  document.getElementById('tradeCountLabel').textContent = ENTRY_TIMESTAMPS_UTC.length + ' trades';
+  const { labels, values } = buildMonthlyCounts(ENTRY_TIMESTAMPS_UTC);
+  renderMonthlyChart(labels, values);
+  renderStats(labels, values);
+}
+
+// ---- Theme toggle ----
+function applyThemeButtonIcon(){
+  const theme = document.documentElement.getAttribute('data-theme');
+  const icon = document.getElementById('themeIcon');
+  icon.innerHTML = theme === 'dark'
+    ? '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>'
+    : '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+}
+applyThemeButtonIcon();
+document.getElementById('themeBtn').addEventListener('click', () => {
+  const cur = document.documentElement.getAttribute('data-theme');
+  const next = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try{ localStorage.setItem('mmtrades-theme', next); }catch(e){ /* storage may be blocked */ }
+  applyThemeButtonIcon();
+  if(typeof Chart !== 'undefined') renderAll();
+});
+
+// ---- Sync button ----
+const syncBtn = document.getElementById('syncBtn');
+const syncIcon = document.getElementById('syncIcon');
+async function refetchSyncedData(){
+  const url = window.location.pathname + '?t=' + Date.now();
+  const res = await fetch(url, { cache: 'no-store' });
+  if(!res.ok) throw new Error('Fetch failed: ' + res.status);
+  const html = await res.text();
+  const m = html.match(/\/\/ SYNC_MARKER_START([\s\S]*?)\/\/ SYNC_MARKER_END/);
+  if(!m) throw new Error('SYNC_MARKER block not found');
+  const block = m[1];
+  const syncedAtMatch = block.match(/const DATA_SYNCED_AT = "([^"]*)"/);
+  const tsMatch = block.match(/const ENTRY_TIMESTAMPS_UTC = (\[[\s\S]*?\]);/);
+  if(syncedAtMatch) window.DATA_SYNCED_AT_LIVE = syncedAtMatch[1];
+  if(tsMatch) window.TIMESTAMPS_LIVE = JSON.parse(tsMatch[1]);
+}
+async function runSync(){
+  syncBtn.disabled = true;
+  syncIcon.classList.add('spin');
+  syncBtn.title = 'Syncing…';
+  try{
+    await refetchSyncedData();
+    if(window.TIMESTAMPS_LIVE){
+      ENTRY_TIMESTAMPS_UTC.length = 0;
+      ENTRY_TIMESTAMPS_UTC.push(...window.TIMESTAMPS_LIVE);
+    }
+    renderAll();
+    updateStatusLine();
+    syncBtn.title = 'Synced';
+  }catch(err){
+    console.error(err);
+    syncBtn.title = 'Sync failed — click to retry';
+  }finally{
+    syncIcon.classList.remove('spin');
+    syncBtn.disabled = false;
+    setTimeout(() => { syncBtn.title = 'Refresh with the latest synced data'; }, 2000);
+  }
+}
+syncBtn.addEventListener('click', runSync);
+
+const AUTO_REFRESH_MS = 5 * 60 * 1000;
+setInterval(() => {
+  if(document.visibilityState === 'visible') runSync();
+}, AUTO_REFRESH_MS);
+
+updateStatusLine();
+loadChartJs().then(renderAll);
+</script>
+</body>
+</html>
